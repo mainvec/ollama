@@ -14,6 +14,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"net/netip"
 	"os"
 	"os/signal"
@@ -1287,7 +1288,9 @@ func Serve(ln net.Listener) error {
 		return err
 	}
 
-	http.Handle("/", h)
+	serverMux := http.NewServeMux()
+	serverMux.Handle("/", h)
+	registerHttpPprof(serverMux)
 
 	ctx, done := context.WithCancel(context.Background())
 	schedCtx, schedDone := context.WithCancel(ctx)
@@ -1304,7 +1307,7 @@ func Serve(ln net.Listener) error {
 		// users to bind it to a different port. This was a quick
 		// and easy way to get pprof, but it may not be the best
 		// way.
-		Handler: nil,
+		Handler: serverMux,
 	}
 
 	// listen for a ctrl+c and stop any loaded llm
@@ -1333,6 +1336,21 @@ func Serve(ln net.Listener) error {
 	}
 	<-ctx.Done()
 	return nil
+}
+
+func registerHttpPprof(mux *http.ServeMux) {
+	if mux == nil {
+		panic("mux is nil")
+	}
+	// register pprof handlers if debug http pprof is not disabled.
+	if !envconfig.NoDebugHTTPPprof() {
+		//same as in  src/net/http/pprof/pprof.init()
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	}
 }
 
 func waitForStream(c *gin.Context, ch chan interface{}) {
